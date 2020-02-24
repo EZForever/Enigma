@@ -35,7 +35,9 @@ public class BridgeMethodIndex implements JarIndexer {
 				continue;
 			}
 
-			indexSyntheticMethod(methodDefEntry, access);
+			// TODO FIXME: The bridge method detection thinks some different methods has identical signatures
+			// Then Java class loader will complain about it
+			//indexSyntheticMethod(methodDefEntry, access);
 		}
 	}
 
