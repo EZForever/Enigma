@@ -14,6 +14,7 @@ package cuchaz.enigma;
 import cuchaz.enigma.gui.Gui;
 import cuchaz.enigma.gui.GuiController;
 import cuchaz.enigma.translation.mapping.serde.MappingFormat;
+
 import joptsimple.*;
 
 import java.io.BufferedReader;
@@ -23,6 +24,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+
+import com.google.common.io.MoreFiles;
 
 public class Main {
 
@@ -77,6 +80,8 @@ public class Main {
 								Path mappingsPath = options.valueOf(mappings);
 								if (Files.isDirectory(mappingsPath)) {
 									controller.openMappings(MappingFormat.ENIGMA_DIRECTORY, mappingsPath);
+								} else if ("zip".equalsIgnoreCase(MoreFiles.getFileExtension(mappingsPath))) {
+									controller.openMappings(MappingFormat.ENIGMA_ZIP, mappingsPath);
 								} else {
 									controller.openMappings(MappingFormat.ENIGMA_FILE, mappingsPath);
 								}

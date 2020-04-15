@@ -12,9 +12,12 @@ import cuchaz.enigma.translation.mapping.tree.HashEntryTree;
 import cuchaz.enigma.translation.representation.MethodDescriptor;
 import cuchaz.enigma.translation.representation.TypeDescriptor;
 import cuchaz.enigma.translation.representation.entry.*;
+import cuchaz.enigma.utils.I18n;
 
 import javax.annotation.Nullable;
 import java.io.IOException;
+import java.nio.file.FileSystem;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
@@ -28,12 +31,12 @@ public enum EnigmaMappingsReader implements MappingsReader {
 	FILE {
 		@Override
 		public EntryTree<EntryMapping> read(Path path, ProgressListener progress, MappingSaveParameters saveParameters) throws IOException, MappingParseException {
-			progress.init(1, "Loading mapping file");
+			progress.init(1, I18n.translate("progress.mappings.enigma_file.loading"));
 
 			EntryTree<EntryMapping> mappings = new HashEntryTree<>();
 			readFile(path, mappings);
 
-			progress.step(1, "Done!");
+			progress.step(1, I18n.translate("progress.mappings.enigma_file.done"));
 
 			return mappings;
 		}
@@ -48,7 +51,7 @@ public enum EnigmaMappingsReader implements MappingsReader {
 					.filter(f -> f.toString().endsWith(".mapping"))
 					.collect(Collectors.toList());
 
-			progress.init(files.size(), "Loading mapping files");
+			progress.init(files.size(), I18n.translate("progress.mappings.enigma_directory.loading"));
 			int step = 0;
 
 			for (Path file : files) {
@@ -60,6 +63,14 @@ public enum EnigmaMappingsReader implements MappingsReader {
 			}
 
 			return mappings;
+		}
+	},
+	ZIP {
+		@Override
+		public EntryTree<EntryMapping> read(Path zip, ProgressListener progress, MappingSaveParameters saveParameters) throws MappingParseException, IOException {
+			try (FileSystem fs = FileSystems.newFileSystem(zip, (ClassLoader) null)) {
+				return DIRECTORY.read(fs.getPath("/"), progress, saveParameters);
+			}
 		}
 	};
 

@@ -1,16 +1,13 @@
 package cuchaz.enigma;
 
 import com.google.common.base.Functions;
-import com.strobel.assembler.metadata.ITypeLoader;
-import com.strobel.assembler.metadata.MetadataSystem;
-import com.strobel.decompiler.DecompilerSettings;
-import com.strobel.decompiler.languages.java.ast.CompilationUnit;
 import cuchaz.enigma.analysis.ClassCache;
 import cuchaz.enigma.analysis.EntryReference;
 import cuchaz.enigma.analysis.index.JarIndex;
 import cuchaz.enigma.api.service.NameProposalService;
 import cuchaz.enigma.bytecode.translators.SourceFixVisitor;
 import cuchaz.enigma.bytecode.translators.TranslationClassVisitor;
+import cuchaz.enigma.source.*;
 import cuchaz.enigma.translation.Translator;
 import cuchaz.enigma.translation.mapping.*;
 import cuchaz.enigma.translation.mapping.tree.DeltaTrackingTree;
@@ -19,25 +16,23 @@ import cuchaz.enigma.translation.representation.entry.ClassEntry;
 import cuchaz.enigma.translation.representation.entry.Entry;
 import cuchaz.enigma.translation.representation.entry.LocalVariableEntry;
 import cuchaz.enigma.translation.representation.entry.MethodEntry;
+import cuchaz.enigma.utils.I18n;
+
+import cuchaz.enigma.utils.Utils;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.tree.ClassNode;
 
-import java.io.BufferedWriter;
-import java.io.IOException;
-import java.io.PrintWriter;
-import java.io.StringWriter;
+import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.jar.JarEntry;
 import java.util.jar.JarOutputStream;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 public class EnigmaProject {
 	private final Enigma enigma;
@@ -148,7 +143,7 @@ public class EnigmaProject {
 		Translator deobfuscator = nameProposalServices.length == 0 ? mapper.getDeobfuscator() : new ProposingTranslator(mapper, nameProposalServices);
 
 		AtomicInteger count = new AtomicInteger();
-		progress.init(classEntries.size(), "Deobfuscating classes...");
+		progress.init(classEntries.size(), I18n.translate("progress.classes.deobfuscating"));
 
 		Map<String, ClassNode> compiled = classEntries.parallelStream()
 				.map(entry -> {
@@ -158,7 +153,7 @@ public class EnigmaProject {
 					ClassNode node = classCache.getClassNode(entry.getFullName());
 					if (node != null) {
 						ClassNode translatedNode = new ClassNode();
-						node.accept(new TranslationClassVisitor(deobfuscator, Opcodes.ASM5, new SourceFixVisitor(Opcodes.ASM5, translatedNode, jarIndex)));
+						node.accept(new TranslationClassVisitor(deobfuscator, Utils.ASM_VERSION, new SourceFixVisitor(Utils.ASM_VERSION, translatedNode, jarIndex)));
 						return translatedNode;
 					}
 
@@ -180,7 +175,7 @@ public class EnigmaProject {
 		}
 
 		public void write(Path path, ProgressListener progress) throws IOException {
-			progress.init(this.compiled.size(), "Writing jar...");
+			progress.init(this.compiled.size(), I18n.translate("progress.jar.writing"));
 
 			try (JarOutputStream out = new JarOutputStream(Files.newOutputStream(path))) {
 				AtomicInteger count = new AtomicInteger();
@@ -200,26 +195,15 @@ public class EnigmaProject {
 			}
 		}
 
-		public SourceExport decompile(ProgressListener progress) {
+		public SourceExport decompile(ProgressListener progress, DecompilerService decompilerService) {
 			Collection<ClassNode> classes = this.compiled.values().stream()
 					.filter(classNode -> classNode.name.indexOf('$') == -1)
 					.collect(Collectors.toList());
 
-			progress.init(classes.size(), "Decompiling classes...");
+			progress.init(classes.size(), I18n.translate("progress.classes.decompiling"));
 
 			//create a common instance outside the loop as mappings shouldn't be changing while this is happening
-			CompiledSourceTypeLoader typeLoader = new CompiledSourceTypeLoader(this.compiled::get);
-
-			//synchronized to make sure the parallelStream doesn't CME with the cache
-			ITypeLoader synchronizedTypeLoader = new SynchronizedTypeLoader(typeLoader);
-
-			MetadataSystem metadataSystem = new NoRetryMetadataSystem(synchronizedTypeLoader);
-
-			//ensures methods are loaded on classload and prevents race conditions
-			metadataSystem.setEagerMethodLoadingEnabled(true);
-
-			DecompilerSettings settings = SourceProvider.createSettings();
-			SourceProvider sourceProvider = new SourceProvider(settings, synchronizedTypeLoader, metadataSystem);
+			Decompiler decompiler = decompilerService.create(compiled::get, new SourceSettings(false, false));
 
 			AtomicInteger count = new AtomicInteger();
 
@@ -227,7 +211,7 @@ public class EnigmaProject {
 					.map(translatedNode -> {
 						progress.step(count.getAndIncrement(), translatedNode.name);
 
-						String source = decompileClass(translatedNode, sourceProvider);
+						String source = decompileClass(translatedNode, decompiler);
 						return new ClassSource(translatedNode.name, source);
 					})
 					.collect(Collectors.toList());
@@ -235,16 +219,8 @@ public class EnigmaProject {
 			return new SourceExport(decompiled);
 		}
 
-		private String decompileClass(ClassNode translatedNode, SourceProvider sourceProvider) {
-			StringWriter writer = new StringWriter();
-			try {
-				CompilationUnit sourceTree = sourceProvider.getSources(translatedNode.name);
-				sourceProvider.writeSource(writer, sourceTree);
-			} catch (Throwable t) {
-				t.printStackTrace();
-				t.printStackTrace(new PrintWriter(writer));
-			}
-			return writer.toString();
+		private String decompileClass(ClassNode translatedNode, Decompiler decompiler) {
+			return decompiler.getSource(translatedNode.name).asString();
 		}
 	}
 
@@ -256,7 +232,7 @@ public class EnigmaProject {
 		}
 
 		public void write(Path path, ProgressListener progress) throws IOException {
-			progress.init(decompiled.size(), "Writing sources...");
+			progress.init(decompiled.size(), I18n.translate("progress.sources.writing"));
 
 			int count = 0;
 			for (ClassSource source : decompiled) {

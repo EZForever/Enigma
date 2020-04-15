@@ -12,6 +12,7 @@
 package cuchaz.enigma.utils;
 
 import com.google.common.io.CharStreams;
+import org.objectweb.asm.Opcodes;
 
 import javax.swing.*;
 import java.awt.*;
@@ -30,6 +31,8 @@ import java.util.StringJoiner;
 import java.util.stream.Collectors;
 
 public class Utils {
+	
+	public static final int ASM_VERSION = Opcodes.ASM8;
 
 	public static int combineHashesOrdered(Object... objs) {
 		final int prime = 67;
@@ -101,7 +104,7 @@ public class Utils {
 	}
 
 	public static void delete(Path path) throws IOException {
-		if (path.toFile().exists()) {
+		if (Files.exists(path)) {
 			for (Path p : Files.walk(path).sorted(Comparator.reverseOrder()).collect(Collectors.toList())) {
 				Files.delete(p);
 			}

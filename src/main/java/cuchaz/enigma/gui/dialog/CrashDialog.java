@@ -12,12 +12,16 @@
 package cuchaz.enigma.gui.dialog;
 
 import cuchaz.enigma.Constants;
+import cuchaz.enigma.utils.I18n;
 import cuchaz.enigma.utils.Utils;
 
 import javax.swing.*;
 import java.awt.*;
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.io.FileWriter;
+import java.io.File;
+import java.io.IOException;
 
 public class CrashDialog {
 
@@ -28,11 +32,11 @@ public class CrashDialog {
 
 	private CrashDialog(JFrame parent) {
 		// init frame
-		frame = new JFrame(Constants.NAME + " - Crash Report");
+		frame = new JFrame(String.format(I18n.translate("crash.title"), Constants.NAME));
 		final Container pane = frame.getContentPane();
 		pane.setLayout(new BorderLayout());
 
-		JLabel label = new JLabel(Constants.NAME + " has crashed! =(");
+		JLabel label = new JLabel(String.format(I18n.translate("crash.summary"), Constants.NAME));
 		label.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 		pane.add(label, BorderLayout.NORTH);
 
@@ -43,17 +47,32 @@ public class CrashDialog {
 
 		// buttons panel
 		JPanel buttonsPanel = new JPanel();
-		FlowLayout buttonsLayout = new FlowLayout();
-		buttonsLayout.setAlignment(FlowLayout.RIGHT);
-		buttonsPanel.setLayout(buttonsLayout);
-		buttonsPanel.add(Utils.unboldLabel(new JLabel("If you choose exit, you will lose any unsaved work.")));
-		JButton ignoreButton = new JButton("Ignore");
+		buttonsPanel.setLayout(new BoxLayout(buttonsPanel, BoxLayout.LINE_AXIS));
+		JButton exportButton = new JButton(I18n.translate("crash.export"));
+		exportButton.addActionListener(event -> {
+			JFileChooser chooser = new JFileChooser();
+			chooser.setSelectedFile(new File("enigma_crash.log"));
+			if (chooser.showSaveDialog(null) == JFileChooser.APPROVE_OPTION) {
+				try {
+					File file = chooser.getSelectedFile();
+					FileWriter writer = new FileWriter(file);
+					writer.write(instance.text.getText());
+					writer.close();
+				} catch (IOException ex) {
+					ex.printStackTrace();
+				}
+			}
+		});
+		buttonsPanel.add(exportButton);
+		buttonsPanel.add(Box.createHorizontalGlue());
+		buttonsPanel.add(Utils.unboldLabel(new JLabel(I18n.translate("crash.exit.warning"))));
+		JButton ignoreButton = new JButton(I18n.translate("crash.ignore"));
 		ignoreButton.addActionListener(event -> {
 			// close (hide) the dialog
 			frame.setVisible(false);
 		});
 		buttonsPanel.add(ignoreButton);
-		JButton exitButton = new JButton("Exit");
+		JButton exitButton = new JButton(I18n.translate("crash.exit"));
 		exitButton.addActionListener(event -> {
 			// exit enigma
 			System.exit(1);

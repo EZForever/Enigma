@@ -3,6 +3,10 @@ package cuchaz.enigma.config;
 import com.bulenkov.darcula.DarculaLaf;
 import com.google.common.io.Files;
 import com.google.gson.*;
+import cuchaz.enigma.source.DecompilerService;
+import cuchaz.enigma.source.Decompilers;
+
+import cuchaz.enigma.utils.I18n;
 
 import javax.swing.*;
 import javax.swing.plaf.metal.MetalLookAndFeel;
@@ -135,6 +139,19 @@ public class Config {
 		}
 	}
 
+	public enum Decompiler {
+		PROCYON("Procyon", Decompilers.PROCYON),
+		CFR("CFR", Decompilers.CFR);
+
+		public final DecompilerService service;
+		public final String name;
+
+		Decompiler(String name, DecompilerService service) {
+			this.name = name;
+			this.service = service;
+		}
+	}
+
 	private static final File DIR_HOME = new File(System.getProperty("user.home"));
 	private static final File ENIGMA_DIR = new File(DIR_HOME, ".enigma");
 	private static final File CONFIG_FILE = new File(ENIGMA_DIR, "config.json");
@@ -166,7 +183,11 @@ public class Config {
 	public Integer lineNumbersSelected;
 	public Integer lineNumbersForeground;
 
+	public String language = I18n.DEFAULT_LANGUAGE;
+
 	public LookAndFeel lookAndFeel = LookAndFeel.DEFAULT;
+
+	public Decompiler decompiler = Decompiler.PROCYON;
 
 	private Config() {
 		gson = new GsonBuilder()
@@ -213,6 +234,8 @@ public class Config {
 	public void reset() throws IOException {
 		this.lookAndFeel = LookAndFeel.DEFAULT;
 		this.lookAndFeel.apply(this);
+		this.decompiler = Decompiler.PROCYON;
+		this.language = I18n.DEFAULT_LANGUAGE;
 		this.saveConfig();
 	}
 

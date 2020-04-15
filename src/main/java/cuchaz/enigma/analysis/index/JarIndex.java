@@ -20,6 +20,9 @@ import cuchaz.enigma.translation.mapping.EntryResolver;
 import cuchaz.enigma.translation.mapping.IndexEntryResolver;
 import cuchaz.enigma.translation.representation.Lambda;
 import cuchaz.enigma.translation.representation.entry.*;
+import cuchaz.enigma.utils.I18n;
+
+import cuchaz.enigma.utils.Utils;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.Opcodes;
 
@@ -58,18 +61,18 @@ public class JarIndex implements JarIndexer {
 	}
 
 	public void indexJar(ClassCache classCache, ProgressListener progress) {
-		progress.init(4, "Indexing jar");
+		progress.init(4, I18n.translate("progress.jar.indexing"));
 
-		progress.step(1, "Entries...");
-		classCache.visit(() -> new IndexClassVisitor(this, Opcodes.ASM5), ClassReader.SKIP_CODE);
+		progress.step(1, I18n.translate("progress.jar.indexing.entries"));
+		classCache.visit(() -> new IndexClassVisitor(this, Utils.ASM_VERSION), ClassReader.SKIP_CODE);
 
-		progress.step(2, "Entry references...");
-		classCache.visit(() -> new IndexReferenceVisitor(this, entryIndex, inheritanceIndex, Opcodes.ASM5), 0);
+		progress.step(2, I18n.translate("progress.jar.indexing.references"));
+		classCache.visit(() -> new IndexReferenceVisitor(this, entryIndex, inheritanceIndex, Utils.ASM_VERSION), 0);
 
-		progress.step(3, "Bridge methods...");
+		progress.step(3, I18n.translate("progress.jar.indexing.methods"));
 		bridgeMethodIndex.findBridgeMethods();
 
-		progress.step(4, "Processing...");
+		progress.step(4, I18n.translate("progress.jar.indexing.process"));
 		processIndex(this);
 	}
 

@@ -13,12 +13,17 @@ package cuchaz.enigma.translation.mapping.serde;
 
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.nio.file.DirectoryStream;
+import java.nio.file.FileSystem;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
@@ -40,6 +45,7 @@ import cuchaz.enigma.translation.representation.entry.Entry;
 import cuchaz.enigma.translation.representation.entry.FieldEntry;
 import cuchaz.enigma.translation.representation.entry.LocalVariableEntry;
 import cuchaz.enigma.translation.representation.entry.MethodEntry;
+import cuchaz.enigma.utils.I18n;
 import cuchaz.enigma.utils.LFPrintWriter;
 
 public enum EnigmaMappingsWriter implements MappingsWriter {
@@ -51,7 +57,7 @@ public enum EnigmaMappingsWriter implements MappingsWriter {
 					.map(entry -> (ClassEntry) entry)
 					.collect(Collectors.toList());
 
-			progress.init(classes.size(), "Writing classes");
+			progress.init(classes.size(), I18n.translate("progress.mappings.enigma_file.writing"));
 
 			int steps = 0;
 			try (PrintWriter writer = new LFPrintWriter(Files.newBufferedWriter(path))) {
@@ -74,7 +80,7 @@ public enum EnigmaMappingsWriter implements MappingsWriter {
 
 			applyDeletions(path, changedClasses, mappings, delta.getBaseMappings(), saveParameters.getFileNameFormat());
 
-			progress.init(changedClasses.size(), "Writing classes");
+			progress.init(changedClasses.size(), I18n.translate("progress.mappings.enigma_directory.writing"));
 
 			AtomicInteger steps = new AtomicInteger();
 
@@ -157,6 +163,18 @@ public enum EnigmaMappingsWriter implements MappingsWriter {
 
 		private Path resolve(Path root, ClassEntry classEntry) {
 			return root.resolve(classEntry.getFullName() + ".mapping");
+		}
+	},
+	ZIP {
+		@Override
+		public void write(EntryTree<EntryMapping> mappings, MappingDelta<EntryMapping> delta, Path zip, ProgressListener progress, MappingSaveParameters saveParameters) {
+			try (FileSystem fs = FileSystems.newFileSystem(new URI("jar:file", null, zip.toUri().getPath(), ""), Collections.singletonMap("create", "true"))) {
+				DIRECTORY.write(mappings, delta, fs.getPath("/"), progress, saveParameters);
+			} catch (IOException e) {
+				e.printStackTrace();
+			} catch (URISyntaxException e) {
+				throw new RuntimeException("Unexpected error creating URI for " + zip, e);
+			}
 		}
 	};
 
