@@ -180,7 +180,7 @@ public class ClassEntry extends ParentedEntry<ClassEntry> implements Comparable<
 	@Nullable
 	public static ClassEntry getOuterClass(String name) {
 		int index = name.lastIndexOf('$');
-		if (!name.startsWith("[") && index >= 0) {
+		if (index >= 0) {
 			return new ClassEntry(name.substring(0, index));
 		}
 		return null;
@@ -188,7 +188,7 @@ public class ClassEntry extends ParentedEntry<ClassEntry> implements Comparable<
 
 	public static String getInnerName(String name) {
 		int innerClassPos = name.lastIndexOf('$');
-		if (!name.startsWith("[") && innerClassPos > 0) {
+		if (innerClassPos > 0) {
 			return name.substring(innerClassPos + 1);
 		}
 		return name;
