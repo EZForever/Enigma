@@ -11,11 +11,9 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import javax.annotation.Nullable;
 
-import org.objectweb.asm.tree.ClassNode;
-
-import cuchaz.enigma.Enigma;
 import cuchaz.enigma.EnigmaProject;
-import cuchaz.enigma.bytecode.translators.SourceFixVisitor;
+import cuchaz.enigma.classprovider.CachingClassProvider;
+import cuchaz.enigma.classprovider.ObfuscationFixClassProvider;
 import cuchaz.enigma.events.ClassHandleListener;
 import cuchaz.enigma.events.ClassHandleListener.InvalidationType;
 import cuchaz.enigma.source.*;
@@ -89,17 +87,7 @@ public final class ClassHandleProvider {
 	}
 
 	private Decompiler createDecompiler() {
-		return ds.create(name -> {
-			ClassNode node = project.getClassCache().getClassNode(name);
-
-			if (node == null) {
-				return null;
-			}
-
-			ClassNode fixedNode = new ClassNode();
-			node.accept(new SourceFixVisitor(Enigma.ASM_VERSION, fixedNode, project.getJarIndex()));
-			return fixedNode;
-		}, new SourceSettings(true, true));
+		return ds.create(new CachingClassProvider(new ObfuscationFixClassProvider(project.getClassProvider(), project.getJarIndex())), new SourceSettings(true, true));
 	}
 
 	/**
@@ -288,8 +276,8 @@ public final class ClassHandleProvider {
 				if (res == null || mappedVersion.get() != v) return;
 				res = res.andThen(source -> {
 					try {
-						source.remapSource(p.project, p.project.getMapper().getDeobfuscator());
-						return Result.ok(source);
+						DecompiledClassSource remappedSource = source.remapSource(p.project, p.project.getMapper().getDeobfuscator());
+						return Result.ok(remappedSource);
 					} catch (Throwable e) {
 						return Result.err(ClassHandleError.remap(e));
 					}

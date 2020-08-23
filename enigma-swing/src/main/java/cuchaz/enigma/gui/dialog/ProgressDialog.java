@@ -11,53 +11,63 @@
 
 package cuchaz.enigma.gui.dialog;
 
-import cuchaz.enigma.Enigma;
-import cuchaz.enigma.ProgressListener;
-import cuchaz.enigma.gui.util.GuiUtil;
-import cuchaz.enigma.utils.I18n;
-import cuchaz.enigma.gui.util.ScaleUtil;
+import java.awt.Container;
+import java.awt.Dimension;
+import java.awt.GridBagConstraints;
+import java.awt.GridBagLayout;
+import java.util.concurrent.CompletableFuture;
 
 import javax.swing.*;
-import java.awt.*;
-import java.util.concurrent.CompletableFuture;
+
+import cuchaz.enigma.Enigma;
+import cuchaz.enigma.ProgressListener;
+import cuchaz.enigma.gui.util.GridBagConstraintsBuilder;
+import cuchaz.enigma.gui.util.GuiUtil;
+import cuchaz.enigma.gui.util.ScaleUtil;
+import cuchaz.enigma.utils.I18n;
 
 public class ProgressDialog implements ProgressListener, AutoCloseable {
 
-	private JFrame frame;
-	private JLabel labelTitle;
-	private JLabel labelText;
-	private JProgressBar progress;
+	private final JDialog dialog;
+	private final JLabel labelTitle = new JLabel();
+	private final JLabel labelText = GuiUtil.unboldLabel(new JLabel());
+	private final JProgressBar progress = new JProgressBar();
 
 	public ProgressDialog(JFrame parent) {
-
 		// init frame
-		this.frame = new JFrame(String.format(I18n.translate("progress.operation"), Enigma.NAME));
-		final Container pane = this.frame.getContentPane();
-		FlowLayout layout = new FlowLayout();
-		layout.setAlignment(FlowLayout.LEFT);
-		pane.setLayout(layout);
+		this.dialog = new JDialog(parent, String.format(I18n.translate("progress.operation"), Enigma.NAME));
+		Container pane = this.dialog.getContentPane();
+		pane.setLayout(new GridBagLayout());
 
-		this.labelTitle = new JLabel();
-		pane.add(this.labelTitle);
+		GridBagConstraintsBuilder cb = GridBagConstraintsBuilder.create()
+				.insets(2)
+				.anchor(GridBagConstraints.WEST)
+				.fill(GridBagConstraints.BOTH)
+				.weight(1.0, 0.0);
 
-		// set up the progress bar
-		JPanel panel = new JPanel();
-		pane.add(panel);
-		panel.setLayout(new BorderLayout());
-		this.labelText = GuiUtil.unboldLabel(new JLabel());
-		this.progress = new JProgressBar();
-		this.labelText.setBorder(BorderFactory.createEmptyBorder(0, 0, 10, 0));
-		panel.add(this.labelText, BorderLayout.NORTH);
-		panel.add(this.progress, BorderLayout.CENTER);
-		panel.setPreferredSize(ScaleUtil.getDimension(360, 50));
+		// Set label text since otherwise the label height is 0, which makes the
+		// window size get set incorrectly
+		this.labelTitle.setText("Idle");
+		this.labelText.setText("Idle");
+		this.progress.setPreferredSize(ScaleUtil.getDimension(0, 30));
+
+		pane.add(this.labelTitle, cb.pos(0, 0).build());
+		pane.add(this.labelText, cb.pos(0, 1).build());
+		// set padding because otherwise the progress bar gets cut off when
+		// using the Darkula theme
+		pane.add(this.progress, cb.pos(0, 2).weight(1.0, 1.0).padding(10).build());
 
 		// show the frame
-		pane.doLayout();
-		this.frame.setSize(ScaleUtil.getDimension(400, 120));
-		this.frame.setResizable(false);
-		this.frame.setLocationRelativeTo(parent);
-		this.frame.setVisible(true);
-		this.frame.setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
+		this.dialog.pack();
+		Dimension size = this.dialog.getSize();
+		this.dialog.setMinimumSize(size);
+		size.width = ScaleUtil.scale(400);
+		this.dialog.setSize(size);
+
+		this.dialog.setResizable(false);
+		this.dialog.setLocationRelativeTo(parent);
+		this.dialog.setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
+		this.dialog.setVisible(true);
 	}
 
 	public static CompletableFuture<Void> runOffThread(final JFrame parent, final ProgressRunnable runnable) {
@@ -77,7 +87,7 @@ public class ProgressDialog implements ProgressListener, AutoCloseable {
 
 	@Override
 	public void close() {
-		this.frame.dispose();
+		this.dialog.dispose();
 	}
 
 	@Override
@@ -99,8 +109,8 @@ public class ProgressDialog implements ProgressListener, AutoCloseable {
 		}
 
 		// update the frame
-		this.frame.validate();
-		this.frame.repaint();
+		this.dialog.validate();
+		this.dialog.repaint();
 	}
 
 	public interface ProgressRunnable {

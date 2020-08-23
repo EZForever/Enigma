@@ -24,13 +24,15 @@ import cuchaz.enigma.events.ClassHandleListener;
 import cuchaz.enigma.gui.BrowserCaret;
 import cuchaz.enigma.gui.Gui;
 import cuchaz.enigma.gui.GuiController;
-import cuchaz.enigma.gui.config.Config;
+import cuchaz.enigma.gui.config.LookAndFeel;
 import cuchaz.enigma.gui.config.Themes;
+import cuchaz.enigma.gui.config.UiConfig;
 import cuchaz.enigma.gui.elements.PopupMenuBar;
 import cuchaz.enigma.gui.events.EditorActionListener;
 import cuchaz.enigma.gui.events.ThemeChangeListener;
 import cuchaz.enigma.gui.highlight.BoxHighlightPainter;
 import cuchaz.enigma.gui.highlight.SelectionHighlightPainter;
+import cuchaz.enigma.gui.util.GridBagConstraintsBuilder;
 import cuchaz.enigma.gui.util.ScaleUtil;
 import cuchaz.enigma.source.DecompiledClassSource;
 import cuchaz.enigma.source.RenamableTokenType;
@@ -60,7 +62,7 @@ public class EditorPanel {
 	private final JLabel errorLabel = new JLabel();
 	private final JTextArea errorTextArea = new JTextArea();
 	private final JScrollPane errorScrollPane = new JScrollPane(this.errorTextArea);
-	private final JButton retryButton = new JButton(I18n.translate("general.retry"));
+	private final JButton retryButton = new JButton(I18n.translate("prompt.retry"));
 
 	private DisplayMode mode = DisplayMode.INACTIVE;
 
@@ -68,10 +70,11 @@ public class EditorPanel {
 	private final Gui gui;
 
 	private EntryReference<Entry<?>, Entry<?>> cursorReference;
+	private EntryReference<Entry<?>, Entry<?>> nextReference;
 	private boolean mouseIsPressed = false;
 	private boolean shouldNavigateOnClick;
 
-	public Config.LookAndFeel editorLaf;
+	public LookAndFeel editorLaf;
 	private int fontSize = 12;
 	private Map<RenamableTokenType, BoxHighlightPainter> boxHighlightPainters;
 
@@ -92,9 +95,9 @@ public class EditorPanel {
 		this.editor.setCaret(new BrowserCaret());
 		this.editor.setFont(ScaleUtil.getFont(this.editor.getFont().getFontName(), Font.PLAIN, this.fontSize));
 		this.editor.addCaretListener(event -> onCaretMove(event.getDot(), this.mouseIsPressed));
-		this.editor.setCaretColor(new Color(Config.getInstance().caretColor));
+		this.editor.setCaretColor(UiConfig.getCaretColor());
 		this.editor.setContentType("text/enigma-sources");
-		this.editor.setBackground(new Color(Config.getInstance().editorBackground));
+		this.editor.setBackground(UiConfig.getEditorBackgroundColor());
 		DefaultSyntaxKit kit = (DefaultSyntaxKit) this.editor.getEditorKit();
 		kit.toggleComponent(this.editor, "de.sciss.syntaxpane.components.TokenMarker");
 
@@ -238,7 +241,7 @@ public class EditorPanel {
 		this.themeChangeListener = (laf, boxHighlightPainters) -> {
 			if ((this.editorLaf == null || this.editorLaf != laf)) {
 				this.editor.updateUI();
-				this.editor.setBackground(new Color(Config.getInstance().editorBackground));
+				this.editor.setBackground(UiConfig.getEditorBackgroundColor());
 				if (this.editorLaf != null) {
 					this.classHandle.invalidateMapped();
 				}
@@ -331,13 +334,14 @@ public class EditorPanel {
 			} else {
 				this.displayError(res.unwrapErr());
 			}
+			this.nextReference = null;
 		});
 	}
 
 	public void displayError(ClassHandleError t) {
 		this.setDisplayMode(DisplayMode.ERRORED);
 		String str;
-		switch(t.type) {
+		switch (t.type) {
 			case DECOMPILE:
 				str = "editor.decompile_error";
 				break;
@@ -364,15 +368,9 @@ public class EditorPanel {
 				this.decompilingProgressBar.setIndeterminate(true);
 
 				this.ui.setLayout(new GridBagLayout());
-				GridBagConstraints c = new GridBagConstraints();
-				c.gridx = 0;
-				c.gridy = 0;
-				c.insets = ScaleUtil.getInsets(2, 2, 2, 2);
-				c.anchor = GridBagConstraints.SOUTH;
-				this.ui.add(this.decompilingLabel, c);
-				c.gridy = 1;
-				c.anchor = GridBagConstraints.NORTH;
-				this.ui.add(this.decompilingProgressBar, c);
+				GridBagConstraintsBuilder cb = GridBagConstraintsBuilder.create().insets(2);
+				this.ui.add(this.decompilingLabel, cb.pos(0, 0).anchor(GridBagConstraints.SOUTH).build());
+				this.ui.add(this.decompilingProgressBar, cb.pos(0, 1).anchor(GridBagConstraints.NORTH).build());
 				break;
 			}
 			case SUCCESS: {
@@ -382,26 +380,11 @@ public class EditorPanel {
 			}
 			case ERRORED: {
 				this.ui.setLayout(new GridBagLayout());
-				GridBagConstraints c = new GridBagConstraints();
-				c.insets = ScaleUtil.getInsets(2, 2, 2, 2);
-				c.gridx = 0;
-				c.gridy = 0;
-				c.weightx = 1.0;
-				c.anchor = GridBagConstraints.WEST;
-				this.ui.add(this.errorLabel, c);
-				c.gridy = 1;
-				c.fill = GridBagConstraints.HORIZONTAL;
-				this.ui.add(new JSeparator(JSeparator.HORIZONTAL), c);
-				c.gridy = 2;
-				c.fill = GridBagConstraints.BOTH;
-				c.weighty = 1.0;
-				this.ui.add(this.errorScrollPane, c);
-				c.gridy = 3;
-				c.fill = GridBagConstraints.NONE;
-				c.anchor = GridBagConstraints.EAST;
-				c.weightx = 0.0;
-				c.weighty = 0.0;
-				this.ui.add(this.retryButton, c);
+				GridBagConstraintsBuilder cb = GridBagConstraintsBuilder.create().insets(2).weight(1.0, 0.0).anchor(GridBagConstraints.WEST);
+				this.ui.add(this.errorLabel, cb.pos(0, 0).build());
+				this.ui.add(new JSeparator(JSeparator.HORIZONTAL), cb.pos(0, 1).fill(GridBagConstraints.HORIZONTAL).build());
+				this.ui.add(this.errorScrollPane, cb.pos(0, 2).weight(1.0, 1.0).fill(GridBagConstraints.BOTH).build());
+				this.ui.add(this.retryButton, cb.pos(0, 3).weight(0.0, 0.0).anchor(GridBagConstraints.EAST).build());
 				break;
 			}
 		}
@@ -424,21 +407,13 @@ public class EditorPanel {
 	}
 
 	public void onCaretMove(int pos, boolean fromClick) {
+		if (this.settingSource) return;
 		if (this.controller.project == null) return;
 
 		EntryRemapper mapper = this.controller.project.getMapper();
 		Token token = getToken(pos);
 
-		if (this.settingSource) {
-			EntryReference<Entry<?>, Entry<?>> ref = getCursorReference();
-			EntryReference<Entry<?>, Entry<?>> refAtCursor = getReference(token);
-			if (this.editor.getDocument().getLength() != 0 && ref != null && !ref.equals(refAtCursor)) {
-				showReference0(ref);
-			}
-			return;
-		} else {
-			setCursorReference(getReference(token));
-		}
+		setCursorReference(getReference(token));
 
 		Entry<?> referenceEntry = this.cursorReference != null ? this.cursorReference.entry : null;
 
@@ -475,7 +450,7 @@ public class EditorPanel {
 		this.popupMenu.openNextMenu.setEnabled(this.controller.hasNextReference());
 		this.popupMenu.toggleMappingMenu.setEnabled(isRenamable);
 
-		if (referenceEntry != null && this.controller.project.getMapper().hasDeobfMapping(referenceEntry)) {
+		if (referenceEntry != null && this.controller.project.getMapper().extendedDeobfuscate(referenceEntry).isDeobfuscated()) {
 			this.popupMenu.toggleMappingMenu.setText(I18n.translate("popup_menu.reset_obfuscated"));
 		} else {
 			this.popupMenu.toggleMappingMenu.setText(I18n.translate("popup_menu.mark_deobfuscated"));
@@ -504,17 +479,49 @@ public class EditorPanel {
 		if (source == null) return;
 		try {
 			this.settingSource = true;
+
+			int newCaretPos = 0;
+			if (this.source != null && this.source.getEntry().equals(source.getEntry())) {
+				int caretPos = this.editor.getCaretPosition();
+
+				if (this.source.getTokenStore().isCompatible(source.getTokenStore())) {
+					newCaretPos = this.source.getTokenStore().mapPosition(source.getTokenStore(), caretPos);
+				} else {
+					// if the class is the same but the token stores aren't
+					// compatible, then the user probably switched decompilers
+
+					// check if there's a selected reference we can navigate to,
+					// but only if there's none already queued up for being selected
+					if (this.getCursorReference() != null && this.nextReference == null) {
+						this.nextReference = this.getCursorReference();
+					}
+
+					// otherwise fall back to just using the same average
+					// position in the file
+					float scale = (float) source.toString().length() / this.source.toString().length();
+					newCaretPos = (int) (caretPos * scale);
+				}
+			}
+
 			this.source = source;
 			this.editor.getHighlighter().removeAllHighlights();
 			this.editor.setText(source.toString());
+			if (this.source != null) {
+				this.editor.setCaretPosition(newCaretPos);
+			}
 			setHighlightedTokens(source.getHighlightedTokens());
+			setCursorReference(getReference(getToken(this.editor.getCaretPosition())));
 		} finally {
 			this.settingSource = false;
 		}
-		showReference0(getCursorReference());
+
+		if (this.nextReference != null) {
+			this.showReference0(this.nextReference);
+			this.nextReference = null;
+		}
 	}
 
-	public void setHighlightedTokens(Map<RenamableTokenType, Collection<Token>> tokens) {
+	public void setHighlightedTokens(Map<RenamableTokenType, ? extends Collection<Token>> tokens) {
 		// remove any old highlighters
 		this.editor.getHighlighter().removeAllHighlights();
 
@@ -546,8 +553,11 @@ public class EditorPanel {
 	}
 
 	public void showReference(EntryReference<Entry<?>, Entry<?>> reference) {
-		setCursorReference(reference);
-		showReference0(reference);
+		if (this.mode == DisplayMode.SUCCESS) {
+			showReference0(reference);
+		} else if (this.mode != DisplayMode.ERRORED) {
+			this.nextReference = reference;
+		}
 	}
 
 	/**

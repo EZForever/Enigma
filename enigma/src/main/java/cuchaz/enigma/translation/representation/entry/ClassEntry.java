@@ -17,6 +17,8 @@ import java.util.Objects;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
+import cuchaz.enigma.source.RenamableTokenType;
+import cuchaz.enigma.translation.TranslateResult;
 import cuchaz.enigma.translation.Translator;
 import cuchaz.enigma.translation.mapping.EntryMapping;
 import cuchaz.enigma.translation.mapping.IdentifierValidation;
@@ -62,15 +64,18 @@ public class ClassEntry extends ParentedEntry<ClassEntry> implements Comparable<
 	}
 
 	@Override
-	public ClassEntry translate(Translator translator, @Nullable EntryMapping mapping) {
+	public TranslateResult<? extends ClassEntry> extendedTranslate(Translator translator, @Nullable EntryMapping mapping) {
 		if (name.charAt(0) == '[') {
-			String translatedName = translator.translate(new TypeDescriptor(name)).toString();
-			return new ClassEntry(parent, translatedName);
+			TranslateResult<TypeDescriptor> translatedName = translator.extendedTranslate(new TypeDescriptor(name));
+			return translatedName.map(desc -> new ClassEntry(parent, desc.toString()));
 		}
 
 		String translatedName = mapping != null ? mapping.getTargetName() : name;
 		String docs = mapping != null ? mapping.getJavadoc() : null;
-		return new ClassEntry(parent, translatedName, docs);
+		return TranslateResult.of(
+				mapping == null ? RenamableTokenType.OBFUSCATED : RenamableTokenType.DEOBFUSCATED,
+				new ClassEntry(parent, translatedName, docs)
+		);
 	}
 
 	@Override
@@ -99,7 +104,7 @@ public class ClassEntry extends ParentedEntry<ClassEntry> implements Comparable<
 
 	@Override
 	public void validateName(ValidationContext vc, String name) {
-		IdentifierValidation.validateClassName(vc, name);
+		IdentifierValidation.validateClassName(vc, name, this.isInnerClass());
 	}
 
 	@Override
@@ -179,6 +184,10 @@ public class ClassEntry extends ParentedEntry<ClassEntry> implements Comparable<
 
 	@Nullable
 	public static ClassEntry getOuterClass(String name) {
+		if (name.charAt(0) == '[') {
+			return null;
+		}
+
 		int index = name.lastIndexOf('$');
 		if (index >= 0) {
 			return new ClassEntry(name.substring(0, index));
@@ -187,6 +196,10 @@ public class ClassEntry extends ParentedEntry<ClassEntry> implements Comparable<
 	}
 
 	public static String getInnerName(String name) {
+		if (name.charAt(0) == '[') {
+			return name;
+		}
+
 		int innerClassPos = name.lastIndexOf('$');
 		if (innerClassPos > 0) {
 			return name.substring(innerClassPos + 1);

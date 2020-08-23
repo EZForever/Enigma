@@ -1,17 +1,40 @@
 package cuchaz.enigma;
 
+import java.io.BufferedWriter;
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.StringWriter;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.jar.JarEntry;
+import java.util.jar.JarOutputStream;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+
 import com.google.common.base.Functions;
 import com.google.common.base.Preconditions;
-import cuchaz.enigma.analysis.ClassCache;
+import cuchaz.enigma.classprovider.ObfuscationFixClassProvider;
+import org.objectweb.asm.ClassWriter;
+import org.objectweb.asm.tree.ClassNode;
+
 import cuchaz.enigma.analysis.EntryReference;
 import cuchaz.enigma.analysis.index.JarIndex;
 import cuchaz.enigma.api.service.NameProposalService;
-import cuchaz.enigma.bytecode.translators.SourceFixVisitor;
 import cuchaz.enigma.bytecode.translators.TranslationClassVisitor;
-import cuchaz.enigma.source.*;
+import cuchaz.enigma.classprovider.ClassProvider;
+import cuchaz.enigma.source.Decompiler;
+import cuchaz.enigma.source.DecompilerService;
+import cuchaz.enigma.source.SourceSettings;
 import cuchaz.enigma.translation.ProposingTranslator;
 import cuchaz.enigma.translation.Translator;
-import cuchaz.enigma.translation.mapping.*;
+import cuchaz.enigma.translation.mapping.EntryMapping;
+import cuchaz.enigma.translation.mapping.EntryRemapper;
+import cuchaz.enigma.translation.mapping.MappingsChecker;
 import cuchaz.enigma.translation.mapping.tree.DeltaTrackingTree;
 import cuchaz.enigma.translation.mapping.tree.EntryTree;
 import cuchaz.enigma.translation.representation.entry.ClassEntry;
@@ -20,33 +43,21 @@ import cuchaz.enigma.translation.representation.entry.LocalVariableEntry;
 import cuchaz.enigma.translation.representation.entry.MethodEntry;
 import cuchaz.enigma.utils.I18n;
 
-import org.objectweb.asm.ClassWriter;
-import org.objectweb.asm.tree.ClassNode;
-
-import java.io.*;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.Collection;
-import java.util.Map;
-import java.util.Objects;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.jar.JarEntry;
-import java.util.jar.JarOutputStream;
-import java.util.stream.Collectors;
-
 public class EnigmaProject {
 	private final Enigma enigma;
 
-	private final ClassCache classCache;
+	private final Path jarPath;
+	private final ClassProvider classProvider;
 	private final JarIndex jarIndex;
 	private final byte[] jarChecksum;
 
 	private EntryRemapper mapper;
 
-	public EnigmaProject(Enigma enigma, ClassCache classCache, JarIndex jarIndex, byte[] jarChecksum) {
+	public EnigmaProject(Enigma enigma, Path jarPath, ClassProvider classProvider, JarIndex jarIndex, byte[] jarChecksum) {
 		Preconditions.checkArgument(jarChecksum.length == 20);
 		this.enigma = enigma;
-		this.classCache = classCache;
+		this.jarPath = jarPath;
+		this.classProvider = classProvider;
 		this.jarIndex = jarIndex;
 		this.jarChecksum = jarChecksum;
 
@@ -65,8 +76,12 @@ public class EnigmaProject {
 		return enigma;
 	}
 
-	public ClassCache getClassCache() {
-		return classCache;
+	public Path getJarPath() {
+		return jarPath;
+	}
+
+	public ClassProvider getClassProvider() {
+		return classProvider;
 	}
 
 	public JarIndex getJarIndex() {
@@ -101,20 +116,6 @@ public class EnigmaProject {
 		}
 
 		return droppedMappings.keySet();
-	}
-
-	public Decompiler createDecompiler(DecompilerService decompilerService) {
-		return decompilerService.create(name -> {
-			ClassNode node = this.getClassCache().getClassNode(name);
-
-			if (node == null) {
-				return null;
-			}
-
-			ClassNode fixedNode = new ClassNode();
-			node.accept(new SourceFixVisitor(Enigma.ASM_VERSION, fixedNode, getJarIndex()));
-			return fixedNode;
-		}, new SourceSettings(true, true));
 	}
 
 	public boolean isRenamable(Entry<?> obfEntry) {
@@ -159,6 +160,7 @@ public class EnigmaProject {
 
 	public JarExport exportRemappedJar(ProgressListener progress) {
 		Collection<ClassEntry> classEntries = jarIndex.getEntryIndex().getClasses();
+		ClassProvider fixingClassProvider = new ObfuscationFixClassProvider(classProvider, jarIndex);
 
 		NameProposalService[] nameProposalServices = getEnigma().getServices().get(NameProposalService.TYPE).toArray(new NameProposalService[0]);
 		Translator deobfuscator = nameProposalServices.length == 0 ? mapper.getDeobfuscator() : new ProposingTranslator(mapper, nameProposalServices);
@@ -171,10 +173,10 @@ public class EnigmaProject {
 					ClassEntry translatedEntry = deobfuscator.translate(entry);
 					progress.step(count.getAndIncrement(), translatedEntry.toString());
 
-					ClassNode node = classCache.getClassNode(entry.getFullName());
+					ClassNode node = fixingClassProvider.get(entry.getFullName());
 					if (node != null) {
 						ClassNode translatedNode = new ClassNode();
-						node.accept(new TranslationClassVisitor(deobfuscator, Enigma.ASM_VERSION, new SourceFixVisitor(Enigma.ASM_VERSION, translatedNode, jarIndex)));
+						node.accept(new TranslationClassVisitor(deobfuscator, Enigma.ASM_VERSION, translatedNode));
 						return translatedNode;
 					}
 
@@ -183,15 +185,13 @@ public class EnigmaProject {
 				.filter(Objects::nonNull)
 				.collect(Collectors.toMap(n -> n.name, Functions.identity()));
 
-		return new JarExport(jarIndex, compiled);
+		return new JarExport(compiled);
 	}
 
 	public static final class JarExport {
-		private final JarIndex jarIndex;
 		private final Map<String, ClassNode> compiled;
 
-		JarExport(JarIndex jarIndex, Map<String, ClassNode> compiled) {
-			this.jarIndex = jarIndex;
+		JarExport(Map<String, ClassNode> compiled) {
 			this.compiled = compiled;
 		}
 
@@ -217,6 +217,15 @@ public class EnigmaProject {
 		}
 
 		public SourceExport decompile(ProgressListener progress, DecompilerService decompilerService) {
+			return this.decompile(progress, decompilerService, DecompileErrorStrategy.PROPAGATE);
+		}
+
+		public SourceExport decompile(ProgressListener progress, DecompilerService decompilerService, DecompileErrorStrategy errorStrategy) {
+			List<ClassSource> decompiled = this.decompileStream(progress, decompilerService, errorStrategy).collect(Collectors.toList());
+			return new SourceExport(decompiled);
+		}
+
+		public Stream<ClassSource> decompileStream(ProgressListener progress, DecompilerService decompilerService, DecompileErrorStrategy errorStrategy) {
 			Collection<ClassNode> classes = this.compiled.values().stream()
 					.filter(classNode -> classNode.name.indexOf('$') == -1)
 					.collect(Collectors.toList());
@@ -228,16 +237,33 @@ public class EnigmaProject {
 
 			AtomicInteger count = new AtomicInteger();
 
-			Collection<ClassSource> decompiled = classes.parallelStream()
+			return classes.parallelStream()
 					.map(translatedNode -> {
 						progress.step(count.getAndIncrement(), translatedNode.name);
 
-						String source = decompileClass(translatedNode, decompiler);
+						String source = null;
+						try {
+							source = decompileClass(translatedNode, decompiler);
+						} catch (Throwable throwable) {
+							switch (errorStrategy) {
+								case PROPAGATE: throw throwable;
+								case IGNORE: break;
+								case TRACE_AS_SOURCE: {
+									StringWriter writer = new StringWriter();
+									throwable.printStackTrace(new PrintWriter(writer));
+									source = writer.toString();
+									break;
+								}
+							}
+						}
+
+						if (source == null) {
+							return null;
+						}
+
 						return new ClassSource(translatedNode.name, source);
 					})
-					.collect(Collectors.toList());
-
-			return new SourceExport(decompiled);
+					.filter(Objects::nonNull);
 		}
 
 		private String decompileClass(ClassNode translatedNode, Decompiler decompiler) {
@@ -246,7 +272,7 @@ public class EnigmaProject {
 	}
 
 	public static final class SourceExport {
-		private final Collection<ClassSource> decompiled;
+		public final Collection<ClassSource> decompiled;
 
 		SourceExport(Collection<ClassSource> decompiled) {
 			this.decompiled = decompiled;
@@ -265,24 +291,30 @@ public class EnigmaProject {
 		}
 	}
 
-	private static class ClassSource {
-		private final String name;
-		private final String source;
+	public static class ClassSource {
+		public final String name;
+		public final String source;
 
 		ClassSource(String name, String source) {
 			this.name = name;
 			this.source = source;
 		}
 
-		void writeTo(Path path) throws IOException {
+		public void writeTo(Path path) throws IOException {
 			Files.createDirectories(path.getParent());
 			try (BufferedWriter writer = Files.newBufferedWriter(path)) {
 				writer.write(source);
 			}
 		}
 
-		Path resolvePath(Path root) {
+		public Path resolvePath(Path root) {
 			return root.resolve(name.replace('.', '/') + ".java");
 		}
+	}
+
+	public enum DecompileErrorStrategy {
+		PROPAGATE,
+		TRACE_AS_SOURCE,
+		IGNORE
 	}
 }

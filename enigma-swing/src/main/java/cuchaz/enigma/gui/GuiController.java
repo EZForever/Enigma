@@ -36,7 +36,9 @@ import cuchaz.enigma.analysis.*;
 import cuchaz.enigma.api.service.ObfuscationTestService;
 import cuchaz.enigma.classhandle.ClassHandle;
 import cuchaz.enigma.classhandle.ClassHandleProvider;
-import cuchaz.enigma.gui.config.Config;
+import cuchaz.enigma.classprovider.ClasspathClassProvider;
+import cuchaz.enigma.gui.config.NetConfig;
+import cuchaz.enigma.gui.config.UiConfig;
 import cuchaz.enigma.gui.dialog.ProgressDialog;
 import cuchaz.enigma.gui.stats.StatsGenerator;
 import cuchaz.enigma.gui.stats.StatsMember;
@@ -95,9 +97,9 @@ public class GuiController implements ClientPacketHandler {
 		this.gui.onStartOpenJar();
 
 		return ProgressDialog.runOffThread(gui.getFrame(), progress -> {
-			project = enigma.openJar(jarPath, progress);
+			project = enigma.openJar(jarPath, new ClasspathClassProvider(), progress);
 			indexTreeBuilder = new IndexTreeBuilder(project.getJarIndex());
-			chp = new ClassHandleProvider(project, Config.getInstance().decompiler.service);
+			chp = new ClassHandleProvider(project, UiConfig.getDecompiler().service);
 			gui.onFinishOpenJar(jarPath.getFileName().toString());
 			refreshClasses();
 		});
@@ -177,6 +179,28 @@ public class GuiController implements ClientPacketHandler {
 		chp.invalidateMapped();
 	}
 
+	public void reloadAll() {
+		Path jarPath = this.project.getJarPath();
+		MappingFormat loadedMappingFormat = this.loadedMappingFormat;
+		Path loadedMappingPath = this.loadedMappingPath;
+		if (jarPath != null) {
+			this.closeJar();
+			CompletableFuture<Void> f = this.openJar(jarPath);
+			if (loadedMappingFormat != null && loadedMappingPath != null) {
+				f.whenComplete((v, t) -> this.openMappings(loadedMappingFormat, loadedMappingPath));
+			}
+		}
+	}
+
+	public void reloadMappings() {
+		MappingFormat loadedMappingFormat = this.loadedMappingFormat;
+		Path loadedMappingPath = this.loadedMappingPath;
+		if (loadedMappingFormat != null && loadedMappingPath != null) {
+			this.closeMappings();
+			this.openMappings(loadedMappingFormat, loadedMappingPath);
+		}
+	}
+
 	public CompletableFuture<Void> dropMappings() {
 		if (project == null) return CompletableFuture.completedFuture(null);
 
@@ -188,9 +212,14 @@ public class GuiController implements ClientPacketHandler {
 
 		return ProgressDialog.runOffThread(this.gui.getFrame(), progress -> {
 			EnigmaProject.JarExport jar = project.exportRemappedJar(progress);
-			EnigmaProject.SourceExport source = jar.decompile(progress, chp.getDecompilerService());
-
-			source.write(path, progress);
+			jar.decompileStream(progress, chp.getDecompilerService(), EnigmaProject.DecompileErrorStrategy.TRACE_AS_SOURCE)
+					.forEach(source -> {
+						try {
+							source.writeTo(source.resolvePath(path));
+						} catch (IOException e) {
+							e.printStackTrace();
+						}
+					});
 		});
 	}
 
@@ -486,7 +515,7 @@ public class GuiController implements ClientPacketHandler {
 
 	public void openStats(Set<StatsMember> includedMembers, String topLevelPackage) {
 		ProgressDialog.runOffThread(gui.getFrame(), progress -> {
-			String data = new StatsGenerator(project).generate(progress, includedMembers, topLevelPackage);
+			String data = new StatsGenerator(project).generate(progress, includedMembers, topLevelPackage).getTreeJson();
 
 			try {
 				File statsFile = File.createTempFile("stats", ".html");
@@ -506,7 +535,9 @@ public class GuiController implements ClientPacketHandler {
 	}
 
 	public void setDecompiler(DecompilerService service) {
-		chp.setDecompilerService(service);
+		if (chp != null) {
+			chp.setDecompilerService(service);
+		}
 	}
 
 	public ClassHandleProvider getClassHandleProvider() {
@@ -533,7 +564,7 @@ public class GuiController implements ClientPacketHandler {
 		server.start();
 		client = new EnigmaClient(this, "127.0.0.1", port);
 		client.connect();
-		client.sendPacket(new LoginC2SPacket(project.getJarChecksum(), password, EnigmaServer.OWNER_USERNAME));
+		client.sendPacket(new LoginC2SPacket(project.getJarChecksum(), password, NetConfig.getUsername()));
 		gui.setConnectionState(ConnectionState.HOSTING);
 	}
 

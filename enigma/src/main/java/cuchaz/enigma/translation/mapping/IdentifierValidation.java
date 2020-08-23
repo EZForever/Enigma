@@ -31,8 +31,15 @@ public final class IdentifierValidation {
 			"long", "strictfp", "volatile", "const", "float", "native", "super", "while", "_"
 	);
 
-	public static boolean validateClassName(ValidationContext vc, String name) {
+	public static boolean validateClassName(ValidationContext vc, String name, boolean isInner) {
 		if (!StandardValidation.notBlank(vc, name)) return false;
+
+		if (isInner) {
+			// When renaming, inner class names do not contain the package name,
+			// but only the class name.
+			return validateIdentifier(vc, name);
+		}
+
 		String[] parts = name.split("/");
 		for (String part : parts) {
 			validateIdentifier(vc, part);
@@ -66,7 +73,7 @@ public final class IdentifierValidation {
 
 	private static boolean checkForReservedName(ValidationContext vc, String name) {
 		if (isReservedMethodName(name)) {
-			vc.raise(Message.RESERVED_IDENTIFIER);
+			vc.raise(Message.RESERVED_IDENTIFIER, name);
 			return true;
 		}
 		return false;
